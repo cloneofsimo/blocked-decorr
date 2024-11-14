@@ -48,8 +48,9 @@ class DecorrelationLayer(nn.Module):
                     x_block = torch.cat(
                         [x_block, x_block.new_zeros(batch_size, pad_size)], dim=1
                     )
-
-                cov = (x_block.t() @ x_block) / (batch_size - 1)
+                    
+                    
+                cov = (x_block.t() @ x_block) / (batch_size - 1) # (d x B) (B x d) -> total of d B^2 ops 
 
                 self.running_cov[i] = (1 - self.momentum) * self.running_cov[
                     i

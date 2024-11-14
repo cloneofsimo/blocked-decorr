@@ -10,6 +10,42 @@ This project implements a novel block-wise decorrelation layer that efficiently 
 
 The block-wise decorrelation layer performs the following transformation:
 
+
+```mermaid
+graph TD
+    A[Input Activations x] --> B[Center Activations]
+    B --> C[Partition into Blocks]
+    
+    subgraph "Block-wise Processing"
+        C --> D1[Block 1]
+        C --> D2[Block 2]
+        C --> D3[Block ...]
+        C --> D4[Block k]
+        
+        D1 --> E1[Compute Covariance]
+        D2 --> E2[Compute Covariance]
+        D3 --> E3[Compute Covariance]
+        D4 --> E4[Compute Covariance]
+        
+        E1 --> F1[Whitening Transform]
+        E2 --> F2[Whitening Transform]
+        E3 --> F3[Whitening Transform]
+        E4 --> F4[Whitening Transform]
+    end
+    
+    F1 --> G[Concatenate Blocks]
+    F2 --> G
+    F3 --> G
+    F4 --> G
+    
+    G --> H[Output y]
+
+    style A fill:#f9f,stroke:#333
+    style H fill:#9ff,stroke:#333
+    style B fill:#ddd
+    style G fill:#ddd
+```
+
 Given input activations $x \in \mathbb{R}^{B \times D}$ where B is batch size and D is feature dimension:
 
 1. Center the activations:
