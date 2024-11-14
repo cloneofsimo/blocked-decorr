@@ -17,7 +17,7 @@ class DecorrelationLayer(nn.Module):
         super(DecorrelationLayer, self).__init__()
         self.num_features = num_features
         self.block_size = block_size
-        self.num_blocks = (num_features + block_size - 1) // block_size
+        self.num_blocks = num_features // block_size
         self.momentum = momentum
         self.eps = eps
         self.update_every = update_every
@@ -37,38 +37,31 @@ class DecorrelationLayer(nn.Module):
         x_centered = x - x_mean
 
         with torch.no_grad():
-            for i in range(self.num_blocks):
-                start = i * self.block_size
-                end = min(start + self.block_size, self.num_features)
-                x_block = x_centered[:, start:end]
+            x_blocks = x_centered.view(batch_size, self.num_blocks, self.block_size)
+            x_blocks_t = x_blocks.transpose(0, 1)  # Shape: (num_blocks, batch_size, block_size)
+            cov = torch.bmm(
+                x_blocks_t.transpose(1, 2), x_blocks_t
+            ) / (batch_size - 1)  # Shape: (num_blocks, block_size, block_size)
 
-                block_size_actual = x_block.size(1)
-                if block_size_actual < self.block_size:
-                    pad_size = self.block_size - block_size_actual
-                    x_block = torch.cat(
-                        [x_block, x_block.new_zeros(batch_size, pad_size)], dim=1
+            self.running_cov = (
+                1 - self.momentum
+            ) * self.running_cov + self.momentum * cov
+
+            if self.counter % self.update_every == 0:
+                cov_reg = self.running_cov + self.eps * torch.eye(
+                    self.block_size, device=x.device
+                ).unsqueeze(0)
+                try:
+                    eigvals, eigvecs = torch.linalg.eigh(cov_reg)
+                    inv_sqrt_eigvals = torch.diag_embed(
+                        1.0 / torch.sqrt(eigvals + self.eps)
                     )
-                    
-                    
-                cov = (x_block.t() @ x_block) / (batch_size - 1) # (d x B) (B x d) -> total of d B^2 ops 
-
-                self.running_cov[i] = (1 - self.momentum) * self.running_cov[
-                    i
-                ] + self.momentum * cov
-
-                if self.counter % self.update_every == 0:
-                    cov_reg = self.running_cov[i] + self.eps * torch.eye(
-                        self.block_size, device=x.device
+                    icov = torch.bmm(
+                        eigvecs, torch.bmm(inv_sqrt_eigvals, eigvecs.transpose(1, 2))
                     )
-                    try:
-                        eigvals, eigvecs = torch.linalg.eigh(cov_reg)
-                        inv_sqrt_eigvals = torch.diag(
-                            1.0 / torch.sqrt(eigvals + self.eps)
-                        )
-                        icov = eigvecs @ inv_sqrt_eigvals @ eigvecs.t()
-                        self.running_icov[i] = icov
-                    except:
-                        pass
+                    self.running_icov = icov
+                except Exception as e:
+                    pass  # Handle exceptions if necessary
 
         return x_centered
 
@@ -76,27 +69,22 @@ class DecorrelationLayer(nn.Module):
         batch_size = x.size(0)
         x_centered = self.calc_normalizer(x)
 
-        x_padded = torch.zeros(
-            batch_size, self.num_blocks * self.block_size, device=x.device
-        )
-        x_padded[:, : self.num_features] = x_centered
-        x_blocks = x_padded.view(batch_size * self.num_blocks, self.block_size, 1)
+        x_blocks = x_centered.view(
+            batch_size, self.num_blocks, self.block_size, 1
+        )  # Shape: (batch_size, num_blocks, block_size, 1)
+        icov = self.running_icov.unsqueeze(0).expand(
+            batch_size, -1, -1, -1
+        )  # Shape: (batch_size, num_blocks, block_size, block_size)
 
-        icov_repeated = (
-            self.running_icov.unsqueeze(0)
-            .repeat(batch_size, 1, 1, 1)
-            .reshape(batch_size * self.num_blocks, self.block_size, self.block_size)
-        )
-
-        x_decorrelated_blocks = torch.bmm(icov_repeated, x_blocks)
-
-        x_decorrelated = x_decorrelated_blocks.view(batch_size, -1)[
-            :, : self.num_features
-        ]
+        x_decorrelated_blocks = torch.matmul(
+            icov, x_blocks
+        )  # Shape: (batch_size, num_blocks, block_size, 1)
+        x_decorrelated = x_decorrelated_blocks.view(batch_size, -1)
 
         if self.training:
             self.counter += 1
         return x_decorrelated
+
 
 
 class LinearBlock(nn.Module):

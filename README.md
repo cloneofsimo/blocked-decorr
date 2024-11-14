@@ -67,6 +67,45 @@ Given input activations $x \in \mathbb{R}^{B \times D}$ where B is batch size an
 
 Similar to Shampoo optimizer which uses block-diagonal preconditioning matrices, our approach reduces complexity from $O(D^3)$ to $O(D/k \cdot k^3)$ while maintaining most decorrelation benefits. However, while Shampoo applies this in parameter space during optimization, we operate directly on activations during forward propagation.
 
+## 🔬 Test Cases & Validation
+
+### Correlation Analysis
+
+We validate the decorrelation layer using synthetic test cases with known correlation patterns:
+
+```python
+def generate_correlated_data(batch_size, num_features, correlation=0.7):
+    """Generates data with controlled correlation structure"""
+    mean = torch.zeros(num_features)
+    cov = torch.full((num_features, num_features), correlation)
+    cov.diagonal().fill_(1.0)
+    return torch.distributions.MultivariateNormal(mean, cov).sample((batch_size,))
+```
+
+#### Input-Output Visualization
+
+The effectiveness of the decorrelation layer can be seen through covariance matrix visualization:
+
+<div align="center">
+<table>
+<tr>
+<td><img src="contents/Input Covariance Matrix.png" width="400"/></td>
+<td><img src="contents/Output Covariance Matrix.png" width="400"/></td>
+</tr>
+<tr>
+<td><center>Input: High Correlation (ρ=0.7)</center></td>
+<td><center>Output: Decorrelated Features</center></td>
+</tr>
+</table>
+</div>
+
+The heatmaps demonstrate:
+- **Input**: Strong off-diagonal correlations (ρ=0.7) between features
+- **Output**: Near-diagonal covariance matrix, indicating successful decorrelation
+- **Block Structure**: Decorrelation is performed within blocks of size 64, visible in the output pattern
+
+This validates that our layer effectively removes unwanted correlations while maintaining the block-wise processing efficiency.
+
 ## 🚀 Usage
 
 ```bash
